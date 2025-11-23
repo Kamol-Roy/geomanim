@@ -248,8 +248,9 @@ def animate(
                             self.play(FadeIn(colorbar), run_time=1)
                         self.wait()
 
-                    # Zoom in slightly
-                    self.play(geo_map.animate.scale(1.2), run_time=2)
+                    # Zoom in slightly (only if no basemap - zooming breaks basemap alignment)
+                    if not {repr(basemap)}:
+                        self.play(geo_map.animate.scale(1.2), run_time=2)
                     self.wait(2)
             """
         )
