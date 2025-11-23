@@ -65,6 +65,10 @@ media/
 examples/*.mp4
 examples/*.mov
 
+# Keep built-in basemap assets
+!geomanim/assets/*.png
+!geomanim/assets/*.txt
+
 # Test data files (can be large)
 world_countries.geojson
 world_with_data.geojson

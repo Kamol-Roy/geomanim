@@ -1,0 +1,6 @@
+Web Mercator (EPSG:3857) bounds:
+-20037508.34,-19971868.88,20037508.34,19971868.88
+
+Note: Downloaded from CartoDB using contextily
+Light: CartoDB.Positron
+Dark: CartoDB.DarkMatter

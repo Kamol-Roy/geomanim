@@ -22,26 +22,60 @@ def animate(
     color_scheme: str = "viridis",
     quality: str = "medium",
     show_preview: bool = True,
+    background: str = "black",
+    basemap: Optional[str] = None,
+    order: Optional[str] = None,
+    reverse_order: bool = False,
+    format: str = "mp4",
+    stroke_width: float = 2,
 ) -> str:
     """
     Create an animated geospatial visualization with a single function call.
 
     Args:
         file_path: Path to geospatial data file (GeoJSON, Shapefile, CSV, etc.)
-        column: Optional column name for choropleth coloring
-        output: Path to output MP4 file (default: "output.mp4")
+        column: Optional column name for coloring. Supports both:
+            - Numerical columns: Creates choropleth with continuous color gradient
+            - Categorical columns: Auto-detects strings/categories, shows top 5 + "Other"
+        output: Path to output file (default: "output.mp4")
         projection: Map projection ('mercator', 'robinson', 'equirectangular')
-        color_scheme: Color scheme for choropleth ('viridis', 'blues', 'reds', etc.)
+        color_scheme: Color scheme ('viridis', 'blues', 'reds', 'plasma', etc.)
         quality: Output quality ('low', 'medium', 'high')
         show_preview: Whether to show preview after rendering (default: True)
+        background: Background color ('black' or 'white', default: 'black')
+        basemap: Built-in basemap ('light', 'dark', 'neutral', or None)
+        order: Column name to determine animation order (features animate sequentially by this value)
+               Use with groupby().cumcount() for grouped sequential animation
+        reverse_order: If True, animate in descending order; if False, ascending (default: False)
+        format: Output format ('mp4' or 'gif', default: 'mp4')
+        stroke_width: Width of boundary/line strokes (default: 2, increase for roads/lines)
 
     Returns:
-        Path to the generated video file
+        Path to the generated file
 
     Examples:
+        # Numerical choropleth
         >>> from geomanim import animate
         >>> animate("countries.geojson", column="population")
-        >>> animate("cities.csv", output="cities.mp4")
+
+        # Categorical coloring (auto-detects string columns)
+        >>> animate("roads.geojson", column="road_type", stroke_width=3)
+
+        # Ordered animation by value
+        >>> animate("world.geojson", column="gdp", order="gdp", reverse_order=True)
+
+        # Categorical with ordered animation using groupby cumcount
+        >>> import geopandas as gpd
+        >>> roads = gpd.read_file("roads.geojson")
+        >>> roads['order'] = roads.groupby('road_name').cumcount()
+        >>> roads.to_file("roads_ordered.geojson")
+        >>> animate("roads_ordered.geojson", column="road_name", order="order", stroke_width=4)
+
+        # With basemap
+        >>> animate("cities.csv", basemap="light", column="population", background="white")
+
+        # GIF output
+        >>> animate("world.geojson", output="world.gif", format="gif")
     """
     # Validate inputs
     file_path = Path(file_path)
@@ -57,12 +91,27 @@ def animate(
 
     print(f"✓ Loaded {len(data)} features")
 
+    # Determine colors based on background
+    if background.lower() == "white":
+        bg_color = WHITE
+        text_color = BLACK
+        stroke_color = BLACK
+        default_fill = BLUE_C
+    else:
+        bg_color = BLACK
+        text_color = WHITE
+        stroke_color = WHITE
+        default_fill = BLUE_D
+
     # Create the Manim scene programmatically
     class GeoAnimScene(Scene):
         def construct(self):
+            # Set background color
+            self.camera.background_color = bg_color
+
             # Create title
             title_text = file_path.stem.replace("_", " ").title()
-            title = Text(title_text, font_size=42)
+            title = Text(title_text, font_size=42, color=text_color)
             title.to_edge(UP)
 
             # Create the map
@@ -71,9 +120,9 @@ def animate(
                 projection=projection,
                 color_by=column,
                 color_scheme=color_scheme if column else None,
-                fill_color=BLUE_D if not column else None,
+                fill_color=default_fill if not column else None,
                 fill_opacity=0.8,
-                stroke_color=WHITE,
+                stroke_color=stroke_color,
                 stroke_width=1,
             )
 
@@ -82,11 +131,10 @@ def animate(
             self.play(Create(geo_map), run_time=3)
             self.wait()
 
-            # If choropleth, show a label
+            # If choropleth, add a colorbar
             if column:
-                label = Text(f"Colored by: {column}", font_size=24, color=GREY)
-                label.to_edge(DOWN)
-                self.play(FadeIn(label))
+                colorbar = geo_map.create_colorbar(text_color=text_color)
+                self.play(FadeIn(colorbar), run_time=1)
                 self.wait()
 
             # Zoom in slightly
@@ -125,12 +173,28 @@ def animate(
 
             class GeoAnimScene(Scene):
                 def construct(self):
+                    # Determine colors based on background
+                    background = "{background}"
+                    if background.lower() == "white":
+                        bg_color = WHITE
+                        text_color = BLACK
+                        stroke_color = BLACK
+                        default_fill = BLUE_C
+                    else:
+                        bg_color = BLACK
+                        text_color = WHITE
+                        stroke_color = WHITE
+                        default_fill = BLUE_D
+
+                    # Set background color
+                    self.camera.background_color = bg_color
+
                     # Load data
                     data = load_data(r"{file_path}")
 
                     # Create title
                     title_text = "{file_path.stem.replace('_', ' ').title()}"
-                    title = Text(title_text, font_size=42)
+                    title = Text(title_text, font_size=42, color=text_color)
                     title.to_edge(UP)
 
                     # Create the map
@@ -139,22 +203,49 @@ def animate(
                         projection="{projection}",
                         color_by={repr(column)},
                         color_scheme="{color_scheme}" if {repr(column)} else None,
-                        fill_color=BLUE_D if not {repr(column)} else None,
+                        fill_color=default_fill if not {repr(column)} else None,
                         fill_opacity=0.8,
-                        stroke_color=WHITE,
-                        stroke_width=1,
+                        stroke_color=stroke_color,
+                        stroke_width={stroke_width},
+                        basemap={repr(basemap)},
+                        order={repr(order)},
+                        reverse_order={reverse_order},
                     )
 
                     # Animation sequence
                     self.play(Write(title), run_time=1)
-                    self.play(Create(geo_map), run_time=3)
+
+                    # Add basemap background if present (must be added before animating vector data)
+                    if hasattr(geo_map, 'background_mobject') and geo_map.background_mobject:
+                        self.add(geo_map.background_mobject)
+
+                    # Use appropriate animation based on order parameter
+                    if {repr(order)}:
+                        # Ordered animation - features appear sequentially
+                        self.play(geo_map.get_creation_animation(run_time=5, lag_ratio=0.08))
+                    elif {repr(basemap)}:
+                        # Basemap - use FadeIn
+                        self.play(FadeIn(geo_map), run_time=2)
+                    else:
+                        # Standard - use Create
+                        self.play(Create(geo_map), run_time=3)
                     self.wait()
 
-                    # If choropleth, show a label
+                    # Add colorbar or legend based on data type
                     if {repr(column)}:
-                        label = Text(f"Colored by: {repr(column)}", font_size=24, color=GREY)
-                        label.to_edge(DOWN)
-                        self.play(FadeIn(label))
+                        if geo_map.is_categorical:
+                            # Create categorical legend
+                            legend = VGroup()
+                            for cat, color in geo_map.category_colors.items():
+                                cat_label = Text(cat, font_size=20, color=color)
+                                legend.add(cat_label)
+                            legend.arrange(DOWN, aligned_edge=LEFT, buff=0.15)
+                            legend.to_corner(UR, buff=0.5)
+                            self.play(FadeIn(legend), run_time=1)
+                        else:
+                            # Numerical - show colorbar
+                            colorbar = geo_map.create_colorbar(text_color=text_color)
+                            self.play(FadeIn(colorbar), run_time=1)
                         self.wait()
 
                     # Zoom in slightly
@@ -191,6 +282,11 @@ def animate(
             output_name,
         ]
 
+        # Add format flag for GIF
+        if format.lower() == "gif":
+            cmd.append("--format")
+            cmd.append("gif")
+
         if show_preview:
             cmd.append("-p")
 
@@ -203,9 +299,10 @@ def animate(
             raise RuntimeError(f"Manim rendering failed: {result.stderr}")
 
         # Find the generated file
-        media_dir = Path("media/videos/tmpscene/").resolve()
+        file_ext = "gif" if format.lower() == "gif" else "mp4"
+        media_dir = Path("media/videos/").resolve()
         if media_dir.exists():
-            for video_file in media_dir.rglob(f"{output_name}.mp4"):
+            for video_file in media_dir.rglob(f"{output_name}.{file_ext}"):
                 # Copy to desired output location
                 import shutil
 

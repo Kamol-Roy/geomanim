@@ -57,6 +57,14 @@ def interpolate_color_range(
     Returns:
         Hex color code
     """
+    # Handle NaN values - return first color as default
+    if np.isnan(value):
+        return colors[0]
+
+    # Handle NaN min/max values (can happen if all data is NaN)
+    if np.isnan(min_val) or np.isnan(max_val):
+        return colors[0]
+
     if max_val == min_val:
         return colors[0]
 

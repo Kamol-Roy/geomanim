@@ -36,6 +36,7 @@ dependencies = [
     "geopandas>=0.10.0",
     "shapely>=1.8.0",
     "pyproj>=3.0.0",
+    "Pillow>=9.0.0",
 ]
 
 [project.optional-dependencies]
