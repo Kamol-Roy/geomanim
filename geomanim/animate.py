@@ -28,6 +28,10 @@ def animate(
     reverse_order: bool = False,
     format: str = "mp4",
     stroke_width: float = 2,
+    title: Optional[str] = None,
+    legend_position: str = "upper_right",
+    legend_bbox: Optional[tuple] = None,
+    title_column: Optional[str] = None,
 ) -> str:
     """
     Create an animated geospatial visualization with a single function call.
@@ -49,6 +53,13 @@ def animate(
         reverse_order: If True, animate in descending order; if False, ascending (default: False)
         format: Output format ('mp4' or 'gif', default: 'mp4')
         stroke_width: Width of boundary/line strokes (default: 2, increase for roads/lines)
+        title: Optional title text to display at top (default: None, no title shown)
+        legend_position: Legend position - 'upper_right', 'upper_left', 'lower_right', 'lower_left' (default: 'upper_right')
+                        Ignored if legend_bbox is specified
+        legend_bbox: Precise legend position as (x, y) coordinates in Manim space (default: None, uses legend_position)
+                    Example: (5, 2) places legend at x=5, y=2. Typical ranges: x=[-7,7], y=[-4,4]
+        title_column: Optional column name for dynamic title updates (shows current value as features animate over time)
+                     Only works with ordered animations. Example: 'year' shows current year as map evolves
 
     Returns:
         Path to the generated file
@@ -192,10 +203,18 @@ def animate(
                     # Load data
                     data = load_data(r"{file_path}")
 
-                    # Create title
-                    title_text = "{file_path.stem.replace('_', ' ').title()}"
-                    title = Text(title_text, font_size=42, color=text_color)
-                    title.to_edge(UP)
+                    # Create title (only if specified or dynamic title enabled)
+                    title = None
+                    title_mobject = None
+                    if {repr(title)}:
+                        title_mobject = Text({repr(title)}, font_size=42, color=text_color)
+                        title_mobject.to_edge(UP)
+                    elif {repr(title_column)} and {repr(order)}:
+                        # Dynamic title - will be updated during animation
+                        # Start with first value
+                        first_value = str(data.iloc[0][{repr(title_column)}])
+                        title_mobject = Text(first_value, font_size=42, color=text_color)
+                        title_mobject.to_edge(UP)
 
                     # Create the map
                     geo_map = GeoMap(
@@ -213,16 +232,75 @@ def animate(
                     )
 
                     # Animation sequence
-                    self.play(Write(title), run_time=1)
+                    if title_mobject:
+                        self.play(Write(title_mobject), run_time=1)
 
                     # Add basemap background if present (must be added before animating vector data)
                     if hasattr(geo_map, 'background_mobject') and geo_map.background_mobject:
                         self.add(geo_map.background_mobject)
 
+                    # Add legend/colorbar first (before map animation)
+                    if {repr(column)}:
+                        if geo_map.is_categorical:
+                            # Create categorical legend
+                            legend = VGroup()
+                            for cat, color in geo_map.category_colors.items():
+                                cat_label = Text(cat, font_size=18, color=color, weight=BOLD)
+                                legend.add(cat_label)
+                            legend.arrange(DOWN, aligned_edge=LEFT, buff=0.12)
+
+                            # Position legend - use bbox if provided, otherwise use position string
+                            legend_bbox_val = {repr(legend_bbox)}
+                            if legend_bbox_val:
+                                # Use precise coordinates
+                                legend.move_to(np.array([legend_bbox_val[0], legend_bbox_val[1], 0]))
+                            else:
+                                # Use position string
+                                legend_pos = {repr(legend_position)}
+                                if legend_pos == "upper_right":
+                                    legend.to_corner(UR, buff=0.4).shift(DOWN * 0.3 + LEFT * 0.3)
+                                elif legend_pos == "upper_left":
+                                    legend.to_corner(UL, buff=0.4).shift(DOWN * 0.3 + RIGHT * 0.3)
+                                elif legend_pos == "lower_right":
+                                    legend.to_corner(DR, buff=0.4).shift(UP * 0.3 + LEFT * 0.3)
+                                elif legend_pos == "lower_left":
+                                    legend.to_corner(DL, buff=0.4).shift(UP * 0.3 + RIGHT * 0.3)
+                                else:
+                                    legend.to_corner(UR, buff=0.4).shift(DOWN * 0.3 + LEFT * 0.3)
+
+                            self.play(FadeIn(legend), run_time=0.8)
+                        else:
+                            # Numerical - show colorbar
+                            colorbar = geo_map.create_colorbar(text_color=text_color)
+                            self.play(FadeIn(colorbar), run_time=0.8)
+
                     # Use appropriate animation based on order parameter
                     if {repr(order)}:
                         # Ordered animation - features appear sequentially
-                        self.play(geo_map.get_creation_animation(run_time=5, lag_ratio=0.08))
+                        if {repr(title_column)} and title_mobject:
+                            # Dynamic title - animate by groups with title updates
+                            import pandas as pd
+                            unique_title_values = sorted(data[{repr(title_column)}].unique())
+
+                            for title_val in unique_title_values:
+                                # Update title
+                                new_title = Text(str(title_val), font_size=42, color=text_color)
+                                new_title.to_edge(UP)
+                                self.play(Transform(title_mobject, new_title), run_time=0.3)
+
+                                # Animate features with this title value
+                                # Get indices for this title value
+                                indices = data[data[{repr(title_column)}] == title_val].index.tolist()
+                                if len(indices) > 0:
+                                    # Animate subset of features
+                                    subset_anim = AnimationGroup(*[
+                                        Create(geo_map.individual_features[i])
+                                        for i in indices if i < len(geo_map.individual_features)
+                                    ], lag_ratio=0.08)
+                                    self.play(subset_anim, run_time=2)
+                        else:
+                            # Standard ordered animation without dynamic title
+                            self.play(geo_map.get_creation_animation(run_time=5, lag_ratio=0.08))
                     elif {repr(basemap)}:
                         # Basemap - use FadeIn
                         self.play(FadeIn(geo_map), run_time=2)
@@ -230,23 +308,6 @@ def animate(
                         # Standard - use Create
                         self.play(Create(geo_map), run_time=3)
                     self.wait()
-
-                    # Add colorbar or legend based on data type
-                    if {repr(column)}:
-                        if geo_map.is_categorical:
-                            # Create categorical legend
-                            legend = VGroup()
-                            for cat, color in geo_map.category_colors.items():
-                                cat_label = Text(cat, font_size=20, color=color)
-                                legend.add(cat_label)
-                            legend.arrange(DOWN, aligned_edge=LEFT, buff=0.15)
-                            legend.to_corner(UR, buff=0.5)
-                            self.play(FadeIn(legend), run_time=1)
-                        else:
-                            # Numerical - show colorbar
-                            colorbar = geo_map.create_colorbar(text_color=text_color)
-                            self.play(FadeIn(colorbar), run_time=1)
-                        self.wait()
 
                     # Zoom in slightly (only if no basemap - zooming breaks basemap alignment)
                     if not {repr(basemap)}:
