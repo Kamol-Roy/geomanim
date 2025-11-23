@@ -9,11 +9,35 @@ GeoManim is a Python package that makes it easy to create beautiful animated map
 - **2D Map Visualization**: Create animated maps with support for multiple projections
 - **Data Integration**: Load and visualize data from GeoJSON, Shapefiles, and CSV files
 - **Choropleth Maps**: Color regions based on data values with automatic colorbars/legends
-- **Built-in Basemaps**: Add beautiful background maps with a single parameter
+- **Dynamic Basemaps**: Automatically fetch OpenStreetMap tiles for your data bounds
+- **Categorical Coloring**: Auto-detect and color categorical data with legends
 - **Ordered Animations**: Control animation sequence based on any data column (GDP, time, rankings, etc.)
 - **Point Plotting**: Plot cities, locations, or any point data on maps
 - **Path Animation**: Animate routes, migrations, and flows
 - **Customizable**: Full control over colors, styles, and animations
+
+## Showcase
+
+### Cross-Country Routes: Seattle → Miami → NYC
+
+![Cross-Country Routes](examples/cross_country_routes.gif)
+
+Animated driving routes using OSRM API with dynamic OpenStreetMap basemap. Created with just a few lines of code:
+
+```python
+from geomanim import animate
+
+animate(
+    file_path="routes.geojson",
+    column="route_name",
+    order="order",
+    basemap="OpenStreetMap.Mapnik",
+    stroke_width=5,
+    quality="high",
+)
+```
+
+[See full example →](examples/README_cross_country.md)
 
 ## Installation
 
@@ -170,14 +194,25 @@ class BasemapExample(Scene):
 ```
 
 **Available Basemaps:**
+
+Static basemaps:
 - `basemap="light"` - Light theme with ocean and land colors (great for presentations)
 - `basemap="dark"` - Dark theme basemap
 - `basemap="neutral"` - Simple gradient background
+
+Dynamic basemaps (automatically fetched using contextily):
+- `basemap="OpenStreetMap.Mapnik"` - Standard OpenStreetMap tiles
+- `basemap="CartoDB.Positron"` - Light, minimalist basemap
+- `basemap="CartoDB.DarkMatter"` - Dark basemap
+- `basemap="CartoDB.Voyager"` - Colorful basemap
+- `basemap="auto"` - Auto-select based on data
+
+No basemap:
 - `basemap=None` - No basemap (default)
 
-**Note**: Built-in basemaps automatically use Mercator projection (downloaded from OpenStreetMap via CartoDB). If you need a different projection (like Robinson or Equirectangular), use the map without basemaps or provide a custom basemap image pre-rendered in the desired projection.
+**Dynamic Basemaps**: GeoManim automatically fetches map tiles from OpenStreetMap providers based on your data's geographic bounds. This gives you up-to-date, detailed background maps without any manual setup.
 
-You can also provide your own basemap images with the `background_image` parameter for custom backgrounds with automatic projection handling.
+**Custom Basemaps**: You can also provide your own basemap images with the `background_image` parameter for custom backgrounds with automatic projection handling.
 
 ### Ordered Animations
 
@@ -224,18 +259,23 @@ For detailed documentation and more examples, visit:
 
 ## Examples
 
-Check out the `examples/` directory for more complete examples:
+Check out the `examples/` directory for complete examples:
 
 - **Basic Map**: Simple world map rendering
 - **Plot Points**: Cities and locations on a map
-- **Choropleth**: Data-driven coloring
+- **Choropleth**: Data-driven coloring with colorbars
+- **Cross-Country Routes**: OSRM routing with dynamic OSM basemap ([README](examples/README_cross_country.md))
 - **Animated Paths**: Flight routes and migrations
 - **Custom Regions**: Highlighting specific areas
 
 Run an example:
 
 ```bash
-manim examples/01_basic_map.py WorldMapScene -pql
+# Simple API
+python examples/09_cross_country_routes_simple.py
+
+# Full Manim Scene
+manim examples/09_cross_country_routes.py CrossCountryRoutes -pqh
 ```
 
 ## Articles & Tutorials
@@ -273,6 +313,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [x] Colorbar/legend support for choropleth maps
 - [x] White/black background themes
 - [x] Built-in basemap support with custom image backgrounds
+- [x] Dynamic basemap fetching (OpenStreetMap, CartoDB via contextily)
+- [x] Categorical coloring with automatic legend generation
+- [x] Ordered animations based on data columns
 - [ ] 3D Earth globe visualization
 - [ ] Advanced camera movements
 - [ ] Interactive map generation
