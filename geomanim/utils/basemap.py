@@ -84,7 +84,15 @@ def fetch_contextily_basemap(
     # Calculate appropriate figure size based on aspect ratio
     width_m = bounds_3857[2] - bounds_3857[0]
     height_m = bounds_3857[3] - bounds_3857[1]
-    aspect = width_m / height_m
+
+    # Handle edge cases for aspect ratio
+    if height_m == 0 or not np.isfinite(height_m):
+        aspect = 1.0  # Default aspect ratio
+    else:
+        aspect = width_m / height_m
+
+    # Ensure aspect ratio is reasonable
+    aspect = np.clip(aspect, 0.1, 10.0)  # Limit to reasonable range
 
     # Base figure width
     fig_width = 20
@@ -197,6 +205,19 @@ def get_basemap_for_data(
         bounds[2] + pad_x,
         bounds[3] + pad_y,
     )
+
+    # Clamp bounds to valid ranges to prevent NaN/Inf errors
+    # For EPSG:4326 (lat/lon), clamp to Web Mercator limits
+    if crs == "EPSG:4326":
+        # Clamp longitude to [-180, 180]
+        # Clamp latitude to [-85.0511, 85.0511] (Web Mercator limit)
+        WEB_MERCATOR_LAT_LIMIT = 85.0511
+        padded_bounds = (
+            max(-180.0, min(180.0, padded_bounds[0])),  # minx (lon)
+            max(-WEB_MERCATOR_LAT_LIMIT, min(WEB_MERCATOR_LAT_LIMIT, padded_bounds[1])),  # miny (lat)
+            max(-180.0, min(180.0, padded_bounds[2])),  # maxx (lon)
+            max(-WEB_MERCATOR_LAT_LIMIT, min(WEB_MERCATOR_LAT_LIMIT, padded_bounds[3])),  # maxy (lat)
+        )
 
     return fetch_contextily_basemap(
         padded_bounds,

@@ -31,7 +31,11 @@ def animate(
     title: Optional[str] = None,
     legend_position: str = "upper_right",
     legend_bbox: Optional[tuple] = None,
+    colorbar_bbox: Optional[tuple] = None,
     title_column: Optional[str] = None,
+    size_by: Optional[str] = None,
+    min_size: float = 0.03,
+    max_size: float = 0.15,
 ) -> str:
     """
     Create an animated geospatial visualization with a single function call.
@@ -58,8 +62,12 @@ def animate(
                         Ignored if legend_bbox is specified
         legend_bbox: Precise legend position as (x, y) coordinates in Manim space (default: None, uses legend_position)
                     Example: (5, 2) places legend at x=5, y=2. Typical ranges: x=[-7,7], y=[-4,4]
+        colorbar_bbox: Precise colorbar position as (x, y) coordinates (default: None, auto-positioned on right)
         title_column: Optional column name for dynamic title updates (shows current value as features animate over time)
                      Only works with ordered animations. Example: 'year' shows current year as map evolves
+        size_by: Optional column name to scale point sizes (for Point geometries). Example: 'magnitude' for earthquakes
+        min_size: Minimum point radius (default: 0.03)
+        max_size: Maximum point radius (default: 0.15)
 
     Returns:
         Path to the generated file
@@ -229,6 +237,9 @@ def animate(
                         basemap={repr(basemap)},
                         order={repr(order)},
                         reverse_order={reverse_order},
+                        size_by={repr(size_by)},
+                        min_size={min_size},
+                        max_size={max_size},
                     )
 
                     # Animation sequence
@@ -272,13 +283,19 @@ def animate(
                         else:
                             # Numerical - show colorbar
                             colorbar = geo_map.create_colorbar(text_color=text_color)
+
+                            # Position colorbar using bbox if provided
+                            colorbar_bbox_val = {repr(colorbar_bbox)}
+                            if colorbar_bbox_val:
+                                colorbar.move_to(np.array([colorbar_bbox_val[0], colorbar_bbox_val[1], 0]))
+
                             self.play(FadeIn(colorbar), run_time=0.8)
 
                     # Use appropriate animation based on order parameter
                     if {repr(order)}:
                         # Ordered animation - features appear sequentially
                         if {repr(title_column)} and title_mobject:
-                            # Dynamic title - animate by groups with title updates
+                            # Dynamic title - animate by groups (e.g., years) with title updates
                             import pandas as pd
                             unique_title_values = sorted(data[{repr(title_column)}].unique())
 
@@ -286,18 +303,18 @@ def animate(
                                 # Update title
                                 new_title = Text(str(title_val), font_size=42, color=text_color)
                                 new_title.to_edge(UP)
-                                self.play(Transform(title_mobject, new_title), run_time=0.3)
+                                self.play(Transform(title_mobject, new_title), run_time=0.15)
 
-                                # Animate features with this title value
-                                # Get indices for this title value
+                                # Get all features for this title value
                                 indices = data[data[{repr(title_column)}] == title_val].index.tolist()
-                                if len(indices) > 0:
-                                    # Animate subset of features
-                                    subset_anim = AnimationGroup(*[
-                                        Create(geo_map.individual_features[i])
+                                if len(indices) > 0 and len(geo_map.individual_features) > 0:
+                                    # Create VGroup of all features for this group (e.g., year)
+                                    group_features = VGroup(*[
+                                        geo_map.individual_features[i]
                                         for i in indices if i < len(geo_map.individual_features)
-                                    ], lag_ratio=0.08)
-                                    self.play(subset_anim, run_time=2)
+                                    ])
+                                    # Show entire group at once (faster)
+                                    self.play(FadeIn(group_features), run_time=0.6)
                         else:
                             # Standard ordered animation without dynamic title
                             self.play(geo_map.get_creation_animation(run_time=5, lag_ratio=0.08))

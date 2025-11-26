@@ -53,6 +53,9 @@ class GeoMap(VGroup):
         background_bounds: Optional[Tuple[float, float, float, float]] = None,
         background_crs: str = "EPSG:4326",
         background_opacity: float = 0.7,
+        size_by: Optional[str] = None,
+        min_size: float = 0.03,
+        max_size: float = 0.15,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -68,8 +71,12 @@ class GeoMap(VGroup):
         self.stroke_width_auto_scale = True  # Auto-scale stroke width for LineStrings
         self.order = order
         self.reverse_order = reverse_order
+        self.size_by = size_by
+        self.min_size = min_size
+        self.max_size = max_size
         self.axes = None
         self.individual_features = []  # Store individual features for ordered animation
+        self.size_data = {}  # Store size values for each feature index
 
         # Handle basemap parameter
         if basemap is not None and background_image is None:
@@ -138,10 +145,18 @@ class GeoMap(VGroup):
                         provider = "CartoDB.Positron" if fill_color == WHITE else "CartoDB.DarkMatter"
 
                     print(f"Fetching dynamic basemap: {provider}")
+
+                    # Increase padding for Point geometries (worldwide data)
+                    geom_types = self.data.geometry.type.unique()
+                    if 'Point' in geom_types:
+                        padding = 0.25  # 25% padding for points (edges can extend)
+                    else:
+                        padding = 0.15  # 15% padding for polygons/lines
+
                     img_path, img_bounds, img_crs = get_basemap_for_data(
                         self.data,
                         source=provider,
-                        padding=0.15,  # 15% padding around data
+                        padding=padding,
                     )
 
                     background_image = img_path
@@ -427,6 +442,14 @@ class GeoMap(VGroup):
                 ascending=not self.reverse_order  # reverse_order=True means descending
             ).copy()
 
+        # Pre-calculate size range if size_by is specified
+        if self.size_by and self.size_by in data_to_render.columns:
+            size_values = data_to_render[self.size_by].dropna()
+            if len(size_values) > 0:
+                self._size_min_max = (size_values.min(), size_values.max())
+            else:
+                self._size_min_max = (0, 1)
+
         # Determine if we're doing choropleth coloring
         if self.color_by and self.color_by in data_to_render.columns:
             # Check if column is categorical (string/object) or numerical
@@ -503,10 +526,15 @@ class GeoMap(VGroup):
             else:
                 color = self.fill_color
 
+            # Store size data if size_by is specified
+            size_value = None
+            if self.size_by and self.size_by in data_to_render.columns:
+                size_value = row[self.size_by]
+
             # Convert geometry to Manim shape
             # Pass color as both fill_color (for Polygons) and stroke_color (for LineStrings)
             shape = self._geometry_to_mobject(
-                geom, fill_color=color, stroke_color=color
+                geom, fill_color=color, stroke_color=color, size_value=size_value
             )
 
             if shape is not None:
@@ -516,7 +544,7 @@ class GeoMap(VGroup):
                     self.individual_features.append(shape)
 
     def _geometry_to_mobject(
-        self, geom, fill_color=None, stroke_color=None
+        self, geom, fill_color=None, stroke_color=None, size_value=None
     ) -> Optional[VMobject]:
         """
         Convert a Shapely geometry to a Manim VMobject.
@@ -525,6 +553,7 @@ class GeoMap(VGroup):
             geom: Shapely geometry (Polygon, MultiPolygon, etc.)
             fill_color: Fill color override
             stroke_color: Stroke color override
+            size_value: Size value for Point geometries
 
         Returns:
             VMobject representing the geometry, or None if conversion fails
@@ -546,7 +575,7 @@ class GeoMap(VGroup):
         elif isinstance(geom, (LineString, MultiLineString)):
             return self._linestring_to_mobject(geom, stroke_color)
         elif isinstance(geom, Point):
-            return self._point_to_mobject(geom)
+            return self._point_to_mobject(geom, fill_color, size_value)
         else:
             return None
 
@@ -670,20 +699,43 @@ class GeoMap(VGroup):
             # Silently skip invalid geometries
             return None
 
-    def _point_to_mobject(self, point: Point) -> Optional[Dot]:
+    def _point_to_mobject(self, point: Point, fill_color=None, size_value=None) -> Optional[Dot]:
         """Convert a Point to a Manim Dot."""
         try:
+            if fill_color is None:
+                fill_color = self.fill_color
+
             lon, lat = point.x, point.y
             x, y = self.proj_func(lat, lon)
 
-            # Normalize (using reference bounds if available)
-            x_norm, y_norm = normalize_coords(
-                np.array([x]), np.array([y]), self.width, self.height
-            )
+            # Use axes.coords_to_point() like LineString does
+            if self.axes and self.use_axes:
+                manim_point = self.axes.coords_to_point(x, y)
+            else:
+                # Fallback to manual normalization
+                x_norm, y_norm = normalize_coords(
+                    np.array([x]), np.array([y]), self.width, self.height
+                )
+                manim_point = np.array([x_norm[0], y_norm[0], 0])
+
+            # Calculate radius based on size_value if provided
+            if size_value is not None and self.size_by and hasattr(self, '_size_min_max'):
+                size_min, size_max = self._size_min_max
+                if size_max > size_min:
+                    # Normalize to [0, 1]
+                    normalized = (size_value - size_min) / (size_max - size_min)
+                    # Scale to [min_size, max_size]
+                    radius = self.min_size + normalized * (self.max_size - self.min_size)
+                else:
+                    radius = (self.min_size + self.max_size) / 2
+            else:
+                # Use stroke_width for dot radius
+                radius = self.stroke_width * 0.02  # Scale to reasonable size
 
             return Dot(
-                point=np.array([x_norm[0], y_norm[0], 0]),
-                color=self.fill_color,
+                point=manim_point,
+                color=fill_color,
+                radius=radius,
             )
         except Exception:
             return None
