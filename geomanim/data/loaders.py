@@ -8,24 +8,36 @@ from shapely.geometry import Point
 import warnings
 
 
+def _is_url(path: Union[str, Path]) -> bool:
+    """Check if a path is an HTTP/HTTPS URL."""
+    return isinstance(path, str) and path.startswith(("http://", "https://"))
+
+
 def load_geojson(
     filepath: Union[str, Path],
     **kwargs,
 ) -> gpd.GeoDataFrame:
     """
-    Load a GeoJSON file.
+    Load a GeoJSON file from a local path or URL.
 
     Args:
-        filepath: Path to the GeoJSON file
+        filepath: Path to the GeoJSON file, or an HTTP/HTTPS URL
         **kwargs: Additional arguments passed to geopandas.read_file
 
     Returns:
         GeoDataFrame containing the loaded data
 
     Raises:
-        FileNotFoundError: If the file doesn't exist
+        FileNotFoundError: If the local file doesn't exist
         ValueError: If the file cannot be parsed
     """
+    if _is_url(filepath):
+        try:
+            gdf = gpd.read_file(filepath, **kwargs)
+            return gdf
+        except Exception as e:
+            raise ValueError(f"Failed to load GeoJSON from URL: {e}")
+
     filepath = Path(filepath)
 
     if not filepath.exists():
@@ -43,19 +55,26 @@ def load_shapefile(
     **kwargs,
 ) -> gpd.GeoDataFrame:
     """
-    Load a Shapefile.
+    Load a Shapefile from a local path or URL.
 
     Args:
-        filepath: Path to the .shp file
+        filepath: Path to the .shp file, or an HTTP/HTTPS URL
         **kwargs: Additional arguments passed to geopandas.read_file
 
     Returns:
         GeoDataFrame containing the loaded data
 
     Raises:
-        FileNotFoundError: If the file doesn't exist
+        FileNotFoundError: If the local file doesn't exist
         ValueError: If the file cannot be parsed
     """
+    if _is_url(filepath):
+        try:
+            gdf = gpd.read_file(filepath, **kwargs)
+            return gdf
+        except Exception as e:
+            raise ValueError(f"Failed to load Shapefile from URL: {e}")
+
     filepath = Path(filepath)
 
     if not filepath.exists():
@@ -154,11 +173,24 @@ def load_data(
     Raises:
         ValueError: If file type cannot be determined or is unsupported
     """
-    filepath = Path(filepath)
+    # For URLs, infer type from URL path or use gpd.read_file directly
+    if _is_url(filepath):
+        if file_type is None:
+            url_lower = str(filepath).lower().split("?")[0]
+            if url_lower.endswith(".geojson") or url_lower.endswith(".json"):
+                file_type = "geojson"
+            elif url_lower.endswith(".shp"):
+                file_type = "shapefile"
+            elif url_lower.endswith(".csv"):
+                file_type = "csv"
+            else:
+                file_type = "geojson"
+
+    filepath = Path(filepath) if not _is_url(filepath) else filepath
 
     # Determine file type
     if file_type is None:
-        suffix = filepath.suffix.lower()
+        suffix = Path(filepath).suffix.lower()
         if suffix in [".geojson", ".json"]:
             file_type = "geojson"
         elif suffix == ".shp":
