@@ -237,8 +237,10 @@ class GeoMap(VGroup):
             y_range=[min_y - y_padding, max_y + y_padding],
             axis_config={"include_numbers": False, "include_ticks": False},
         )
-        # Hide the axes (we just use them for coordinate transformation)
+        # Hide the axes but add as submobject so it participates in
+        # scale/shift transforms — keeps coords_to_point() accurate.
         self.axes.set_opacity(0)
+        self.add(self.axes)
 
     def _get_scaled_stroke_width(self):
         """
