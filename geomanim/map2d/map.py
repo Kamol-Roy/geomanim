@@ -242,6 +242,25 @@ class GeoMap(VGroup):
         self.axes.set_opacity(0)
         self.add(self.axes)
 
+    def geo_to_point(self, lat: float, lon: float) -> np.ndarray:
+        """Convert geographic coordinates to a Manim scene point.
+
+        Uses the same projection pipeline as polygon rendering, so the
+        returned point is always consistent with the rendered map —
+        even after ``scale()``, ``shift()``, or ``move_to()``.
+
+        Args:
+            lat: Latitude in degrees (e.g. 23.8)
+            lon: Longitude in degrees (e.g. 90.4)
+
+        Returns:
+            3D numpy array ``[x, y, 0]`` in Manim scene coordinates.
+        """
+        if self.axes is None:
+            raise RuntimeError("GeoMap has no axes — pass data to enable coordinate transforms")
+        x, y = self.proj_func(lat, lon)
+        return self.axes.coords_to_point(x, y)
+
     def _get_scaled_stroke_width(self):
         """
         Calculate stroke width scaled to scene dimensions.
@@ -747,15 +766,23 @@ class GeoMap(VGroup):
         data: Union[gpd.GeoDataFrame, List[Tuple[float, float]]],
         color: str = RED,
         radius: float = 0.05,
+        add_to_map: bool = True,
         **kwargs,
     ) -> VGroup:
         """
         Plot points on the map.
 
+        Points are placed using the same axes-based coordinate pipeline as
+        polygons, so they align correctly with rendered geometries.  By
+        default the dots are added as children of this GeoMap so they
+        follow any subsequent ``scale()`` / ``shift()`` / ``move_to()``.
+
         Args:
             data: GeoDataFrame with Point geometries or list of (lat, lon) tuples
             color: Color for the points
             radius: Radius of the dots
+            add_to_map: If True (default), add dots as submobjects of this
+                GeoMap so they move with the map.
             **kwargs: Additional arguments for Dot
 
         Returns:
@@ -768,55 +795,18 @@ class GeoMap(VGroup):
                 geom = row.geometry
                 if isinstance(geom, Point):
                     lon, lat = geom.x, geom.y
-                    x, y = self.proj_func(lat, lon)
-
-                    # Get all x, y coordinates for normalization
-                    all_x = []
-                    all_y = []
-                    for _, r in data.iterrows():
-                        if isinstance(r.geometry, Point):
-                            loni, lati = r.geometry.x, r.geometry.y
-                            xi, yi = self.proj_func(lati, loni)
-                            all_x.append(xi)
-                            all_y.append(yi)
-
-                    x_norm, y_norm = normalize_coords(
-                        np.array(all_x), np.array(all_y), self.width, self.height
-                    )
-
-                    # Find this point's index
-                    point_idx = list(data.index).index(idx)
-                    dot = Dot(
-                        point=np.array([x_norm[point_idx], y_norm[point_idx], 0]),
-                        color=color,
-                        radius=radius,
-                        **kwargs,
-                    )
+                    pos = self.geo_to_point(lat, lon) if self.axes else np.array([lon, lat, 0])
+                    dot = Dot(point=pos, color=color, radius=radius, **kwargs)
                     points_group.add(dot)
 
         else:  # List of (lat, lon) tuples
-            # Project all points first
-            projected = []
             for lat, lon in data:
-                x, y = self.proj_func(lat, lon)
-                projected.append([x, y])
-
-            projected = np.array(projected)
-
-            # Normalize
-            x_norm, y_norm = normalize_coords(
-                projected[:, 0], projected[:, 1], self.width, self.height
-            )
-
-            # Create dots
-            for i in range(len(data)):
-                dot = Dot(
-                    point=np.array([x_norm[i], y_norm[i], 0]),
-                    color=color,
-                    radius=radius,
-                    **kwargs,
-                )
+                pos = self.geo_to_point(lat, lon) if self.axes else np.array([lon, lat, 0])
+                dot = Dot(point=pos, color=color, radius=radius, **kwargs)
                 points_group.add(dot)
+
+        if add_to_map:
+            self.add(*points_group)
 
         return points_group
 
