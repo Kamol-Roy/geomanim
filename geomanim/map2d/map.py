@@ -232,9 +232,23 @@ class GeoMap(VGroup):
         x_padding = (max_x - min_x) * padding
         y_padding = (max_y - min_y) * padding
 
+        # Set axes lengths proportional to coordinate ranges
+        # to preserve geographic aspect ratio
+        x_span = (max_x + x_padding) - (min_x - x_padding)
+        y_span = (max_y + y_padding) - (min_y - y_padding)
+        max_len = 12  # max axis dimension in scene units
+        if x_span >= y_span:
+            x_length = max_len
+            y_length = max_len * (y_span / x_span) if x_span > 0 else max_len
+        else:
+            y_length = max_len
+            x_length = max_len * (x_span / y_span) if y_span > 0 else max_len
+
         self.axes = Axes(
             x_range=[min_x - x_padding, max_x + x_padding],
             y_range=[min_y - y_padding, max_y + y_padding],
+            x_length=x_length,
+            y_length=y_length,
             axis_config={"include_numbers": False, "include_ticks": False},
         )
         # Hide the axes but add as submobject so it participates in
@@ -258,8 +272,62 @@ class GeoMap(VGroup):
         """
         if self.axes is None:
             raise RuntimeError("GeoMap has no axes — pass data to enable coordinate transforms")
-        x, y = self.proj_func(lat, lon)
+
+        # When axes use EPSG:3857 basemap bounds, convert directly to EPSG:3857
+        # (proj_func returns radian-based Mercator which doesn't match)
+        if (hasattr(self, 'background_crs') and self.background_crs == "EPSG:3857"
+                and self.background_image):
+            x = lon * 20037508.342789244 / 180.0
+            lat_rad = np.radians(np.clip(lat, -85.0511, 85.0511))
+            y = 6378137.0 * np.log(np.tan(np.pi / 4 + lat_rad / 2))
+        else:
+            x, y = self.proj_func(lat, lon)
+
         return self.axes.coords_to_point(x, y)
+
+    def render_to(self, scene, run_time=1.5, animation=None):
+        """Add this map to a scene, including the background basemap.
+
+        Because ImageMobject can't be added to VGroup, the basemap
+        background must be added to the scene separately. This method
+        handles that automatically.
+
+        Call this AFTER any ``scale()``, ``move_to()``, or ``shift()``
+        transforms — the background is repositioned to match the current
+        axes state so it stays aligned with the vector data.
+
+        Args:
+            scene: The Manim Scene to add this map to.
+            run_time: Duration for the fade-in animation (default: 1.5).
+            animation: Custom animation class (default: FadeIn).
+
+        Example::
+
+            geo_map = GeoMap(data=gdf, basemap="CartoDB.Voyager")
+            geo_map.scale(2.0).move_to(ORIGIN)
+            geo_map.render_to(self)  # basemap auto-repositioned
+        """
+        if hasattr(self, 'background_mobject') and self.background_mobject is not None:
+            bg = self.background_mobject
+            # Reposition background to match current axes transform
+            # (axes may have been scaled/moved since background was created)
+            if hasattr(self, 'background_bounds') and self.axes is not None:
+                bg_minx, bg_miny, bg_maxx, bg_maxy = self.background_bounds
+                bl = self.axes.coords_to_point(bg_minx, bg_miny)
+                tr = self.axes.coords_to_point(bg_maxx, bg_maxy)
+                w = abs(tr[0] - bl[0])
+                h = abs(tr[1] - bl[1])
+                cx = (bl[0] + tr[0]) / 2
+                cy = (bl[1] + tr[1]) / 2
+                bg.stretch_to_fit_width(w)
+                bg.stretch_to_fit_height(h)
+                bg.move_to([cx, cy, 0])
+            scene.add(bg)
+        if animation is not None:
+            scene.play(animation(self), run_time=run_time)
+        else:
+            from manim import FadeIn as _FadeIn
+            scene.play(_FadeIn(self), run_time=run_time)
 
     def _get_scaled_stroke_width(self):
         """
@@ -323,7 +391,8 @@ class GeoMap(VGroup):
                 bg_image.stretch_to_fit_height(height)
                 bg_image.stretch_to_fit_width(width)
 
-                # Store as separate attribute (can't add ImageMobject to VGroup)
+                # Can't add ImageMobject to VGroup (VMobject-only).
+                # Store separately — use render_to(scene) or manually add to scene.
                 self.background_mobject = bg_image
                 return
 
